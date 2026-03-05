@@ -6,15 +6,15 @@ from datetime import datetime
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 PUSHPUSH_TOKEN = os.getenv("PUSHPUSH_TOKEN")
 
-KEYWORDS = ["人工智能", "大模型", "合肥科技"]
+KEYWORDS = ["人工智能", "大模型", "合肥科技"]  # 你的关键词
 
 def fetch_news():
     rss_url = "https://rss.app/feeds/fzMN6IGpgTPnBYCs.xml"
     try:
         response = requests.get(rss_url, timeout=10)
         articles = [
-            {"title": "国产大模型DeepSeek发布新版本", "url": "https://example.com/1"},
-            {"title": "合肥出台AI产业扶持政策", "url": "https://example.com/2"},
+            {"title": "国产大模型DeepSeek发布R2版本", "url": "https://example.com/1"},
+            {"title": "合肥出台AI产业扶持新政", "url": "https://example.com/2"},
             {"title": "全球芯片产能扩张加速", "url": "https://example.com/3"}
         ]
         return articles
@@ -43,9 +43,11 @@ def summarize_with_ai(articles):
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.3
     }
+    # ✅ 修复点：添加了 /v1 路径
+    url = "https://api.deepseek.com/v1/chat/completions"  
     try:
         resp = requests.post(
-            "https://api.deepseek.com/chat/completions",
+            url,
             headers=headers,
             json=data,
             timeout=30
@@ -54,7 +56,7 @@ def summarize_with_ai(articles):
         summary = result["choices"][0]["message"]["content"]
         return summary.strip()
     except Exception as e:
-        return f"AI总结失败: {str(e)}"
+        return f"AI总结失败: {str(e)}"  # 保留错误提示
 
 def send_to_wechat(summary):
     url = "http://www.pushplus.plus/send"
