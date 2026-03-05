@@ -6,7 +6,7 @@ from datetime import datetime
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 PUSHPUSH_TOKEN = os.getenv("PUSHPUSH_TOKEN")
 
-KEYWORDS = ["人工智能", "大模型", "合肥科技"]  # 你的关键词
+KEYWORDS = ["人工智能", "大模型", "合肥科技"]
 
 def fetch_news():
     rss_url = "https://rss.app/feeds/fzMN6IGpgTPnBYCs.xml"
@@ -39,24 +39,22 @@ def summarize_with_ai(articles):
         "Content-Type": "application/json"
     }
     data = {
-        "model": "deepseek-chat",
+        "model": "deepseek-ai",  # ✅ 关键修复：改为 deepseek-ai
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.3
     }
-    # ✅ 修复点：添加了 /v1 路径
-    url = "https://api.deepseek.com/v1/chat/completions"  
+    url = "https://api.deepseek.com/v1/chat/completions"
     try:
-        resp = requests.post(
-            url,
-            headers=headers,
-            json=data,
-            timeout=30
-        )
+        resp = requests.post(url, headers=headers, json=data, timeout=30)
+        print(f"API Status: {resp.status_code}")  # 添加状态码打印
+        print(f"API Response: {resp.text}")       # 添加响应内容打印
+        if resp.status_code != 200:
+            return f"API Error {resp.status_code}: {resp.text}"
         result = resp.json()
         summary = result["choices"][0]["message"]["content"]
         return summary.strip()
     except Exception as e:
-        return f"AI总结失败: {str(e)}"  # 保留错误提示
+        return f"AI总结失败: {str(e)}"
 
 def send_to_wechat(summary):
     url = "http://www.pushplus.plus/send"
