@@ -1,113 +1,157 @@
 import os
 import requests
+import feedparser
 import json
 from datetime import datetime
 
-# 从 GitHub Secrets 获取密钥
+# 加载配置与状态
+def load_config():
+    with open('config.json', 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+def load_status():
+    if os.path.exists('status.json'):
+        with open('status.json', 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {"is_active": True, "last_run": None}
+
+def save_status(status):
+    with open('status.json', 'w', encoding='utf-8') as f:
+        json.dump(status, f, ensure_ascii=False, indent=2)
+
+CONFIG = load_config()
+STATUS = load_status()
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 PUSHPUSH_TOKEN = os.getenv("PUSHPUSH_TOKEN")
 
-# 关键词配置
-KEYWORDS = ["人工智能", "大模型", "合肥科技"]
+def check_system_status():
+    """检查系统开关状态"""
+    if not STATUS.get("is_active", True):
+        print("⛔ 系统已暂停 (通过前端关闭)，任务终止。")
+        return False
+    return True
 
-def fetch_news():
-    """
-    模拟抓取新闻（因为 RSS 可能需要特定解析库，这里用静态数据保证流程跑通）
-    如果你需要真实 RSS，可以后续集成 feedparser 库
-    """
-    # 这里为了稳定性，暂时使用模拟数据，确保 AI 总结环节能测试通过
-    # 如果你有真实的 RSS 解析逻辑，可以替换这部分
-    articles = [
-        {"title": "国产大模型 DeepSeek-V3 性能全面评测", "url": "https://example.com/deepseek-v3"},
-        {"title": "合肥高新区发布最新 AI 产业扶持政策", "url": "https://example.com/hefei-ai"},
-        {"title": "全球算力芯片需求持续高涨", "url": "https://example.com/chip-demand"}
-    ]
-    return articles
+def fetch_from_trusted_sources():
+    """从白名单权威源抓取新闻"""
+    all_articles = []
+    sources = CONFIG.get("trusted_sources", [])
+    
+    print(f"🛡️ 开始从 {len(sources)} 个权威信源抓取...")
+    
+    for source in sources:
+        url = source['url']
+        name = source['name']
+        try:
+            feed = feedparser.parse(url)
+            if feed.bozo:
+                print(f"⚠️ 源 [{name}] 解析警告，跳过。")
+                continue
+            
+            for entry in feed.entries[:20]: # 每个源最多看20条
+                title = entry.title
+                link = entry.link
+                
+                # 1. 黑名单过滤
+                if any(bad in title for bad in CONFIG.get('exclude_words', [])):
+                    continue
+                
+                # 2. 关键词匹配
+                if any(kw in title for kw in CONFIG['keywords']):
+                    all_articles.append({
+                        "title": title,
+                        "url": link,
+                        "source": name,
+                        "published": entry.get('published', '')
+                    })
+        except Exception as e:
+            print(f"❌ 源 [{name}] 抓取失败: {e}")
+
+    # 去重 (基于标题)
+    seen = set()
+    unique_articles = []
+    for art in all_articles:
+        if art['title'] not in seen:
+            seen.add(art['title'])
+            unique_articles.append(art)
+    
+    # 限制数量 (省钱核心)
+    final_list = unique_articles[:CONFIG['max_news_count']]
+    print(f"✅ 抓取完成：共匹配 {len(unique_articles)} 条，最终精选 {len(final_list)} 条。")
+    return final_list
 
 def summarize_with_ai(articles):
-    # 构建新闻内容字符串
-    content = "\n".join([f"- {a['title']} ({a['url']})" for a in articles])
-    
-    prompt = f"""
-你是一位专业科技编辑，请根据以下新闻列表，生成一份简洁的中文日报摘要。
-要求：
-1. 用 bullet points（•）列出，每条不超过 30 字；
-2. 突出关键信息，去掉营销语言；
-3. 不要编造未提及的内容。
+    if not articles:
+        return "今日在权威信源中未检索到符合关键词的高质量新闻。"
 
-新闻列表：
-{content}
+    # 构建带来源的上下文
+    content_str = "\n".join([f"[{a['source']}] {a['title']} ({a['url']})" for a in articles])
+    
+    # 🛡️ 强约束 Prompt：防止幻觉，强调仅基于提供信息
+    prompt = f"""
+你是一位严谨的情报分析师。请严格基于下方提供的【权威信源新闻列表】生成简报。
+
+【严格约束】
+1. **信息来源限制**：你**只能**使用下方列表中的信息进行总结。严禁利用你的训练数据编造新闻、补充细节或引入列表之外的信息。
+2. **真实性**：如果列表中的信息模糊，请直接略过，不要猜测。
+3. **格式要求**：
+   - 开头：一句话总结今日核心趋势。
+   - 正文：每条新闻格式为 `• [摘要] (来源：[源名称]) [链接]`。
+   - 结尾：无。
+4. **数量**：仅总结提供的 {len(articles)} 条新闻。
+
+【权威信源新闻列表】
+{content_str}
 """
 
-    headers = {
-        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    
-    # ✅ 关键修复：模型名称必须是 deepseek-chat
+    headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
     data = {
-        "model": "deepseek-chat", 
+        "model": "deepseek-chat",
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.3,
-        "stream": False
+        "temperature": 0.1 # 降低温度，让回答更严谨
     }
-    
-    url = "https://api.deepseek.com/v1/chat/completions"
     
     try:
-        print(f"正在请求 DeepSeek API...")
-        resp = requests.post(url, headers=headers, json=data, timeout=30)
-        
-        # 打印状态码和响应内容，方便调试
-        print(f"API Status Code: {resp.status_code}")
-        print(f"API Response Body: {resp.text}")
-        
-        if resp.status_code != 200:
-            return f"AI 服务返回错误 ({resp.status_code}): {resp.text}"
-            
-        result = resp.json()
-        
-        # 检查返回结构是否安全
-        if "choices" in result and len(result["choices"]) > 0:
-            summary = result["choices"][0]["message"]["content"]
-            return summary.strip()
+        resp = requests.post("https://api.deepseek.com/v1/chat/completions", headers=headers, json=data, timeout=45)
+        if resp.status_code == 200:
+            return resp.json()["choices"][0]["message"]["content"]
         else:
-            return "AI 返回了空结果，数据结构异常。"
-            
+            return f"AI 服务异常: {resp.text}"
     except Exception as e:
-        return f"AI 总结失败 (网络或代码错误): {str(e)}"
+        return f"网络请求失败: {str(e)}"
 
 def send_to_wechat(summary):
     url = "http://www.pushplus.plus/send"
     payload = {
         "token": PUSHPUSH_TOKEN,
-        "title": f"📰 AI 每日简报 {datetime.now().strftime('%Y-%m-%d')}",
+        "title": f"🛡️ 权威科技简报 {datetime.now().strftime('%m-%d')}",
         "content": summary,
         "template": "html"
     }
     try:
         resp = requests.post(url, json=payload, timeout=10)
-        if resp.status_code == 200:
-            print("✅ 推送到微信成功！")
-        else:
-            print(f"❌ PushPlus 返回错误: {resp.text}")
+        print(f"推送结果: {resp.text}")
     except Exception as e:
-        print(f"❌ 推送失败: {e}")
+        print(f"推送失败: {e}")
 
 if __name__ == "__main__":
-    print("🚀 开始执行每日简报任务...")
+    print("=== 🤖 权威情报系统启动 ===")
     
-    # 1. 获取新闻
-    articles = fetch_news()
-    print(f"🔍 获取到 {len(articles)} 条新闻")
+    # 1. 检查开关
+    if not check_system_status():
+        exit(0)
     
-    # 2. AI 总结
-    print("🧠 正在调用 DeepSeek 进行总结...")
+    # 2. 抓取
+    articles = fetch_from_trusted_sources()
+    
+    # 3. 总结
     summary = summarize_with_ai(articles)
-    print(f"📝 总结结果: {summary[:50]}...") # 打印前50个字
     
-    # 3. 发送微信
-    print("📲 正在推送到微信...")
+    # 4. 发送
     send_to_wechat(summary)
     
-    print("✅ 任务结束")
+    # 5. 更新状态记录
+    status = load_status()
+    status["last_run"] = datetime.now().isoformat()
+    save_status(status)
+    
+    print("=== 🏁 任务结束 ===")
