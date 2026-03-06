@@ -1,0 +1,25 @@
+{
+  "system_status": "active",
+  "keywords": ["人工智能", "大模型", "DeepSeek", "合肥", "芯片", "量子计算"],
+  "max_news_count": 5,
+  "exclude_words": ["广告", "推广", "点击领取", "震惊", "独家", "博彩"],
+  "schedule_time_utc": "0 1 * * *",
+  "trusted_sources": [
+    {
+      "name": "新华社科技",
+      "url": "http://www.xinhuanet.com/tech/tech.xml"
+    },
+    {
+      "name": "科技部官网",
+      "url": "https://www.most.gov.cn/xwzx/kjyw/index.xml"
+    },
+    {
+      "name": "36Kr - 官方快讯",
+      "url": "https://rsshub.app/36kr/motif/1564986179941377"
+    },
+    {
+      "name": "虎嗅 - 科技频道",
+      "url": "https://rss.huxiu.com/channel/0.xml"
+    }
+  ]
+}
